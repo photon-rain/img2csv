@@ -14,6 +14,16 @@ const LINE_MIN_LENGTH_PX: u32 = 50;
 /// that must be featureful for all to be considered a solid line.
 const LINE_FEATUREFUL_THRESHOLD: f32 = 0.95;
 
+/// The boundary along the image border that should be ignored for
+/// feature detection.
+const FEATURE_BOUNDARY: u32 = 8;
+
+/// The minimum height of a cell.
+const CELL_MIN_HEIGHT_PX: u32 = 10;
+
+/// The minimum width of a cell.
+const CELL_MIN_WIDTH_PX: u32 = 8;
+
 
 /// Passes runtime configiration options.
 pub struct Config {
@@ -66,36 +76,34 @@ fn detect_features(img: &DynamicImage) -> DynamicImage {
         features.put_pixel(x, y, sub);
     }
 
-    const BOUNDARY: u32 = 8;
-
     let (width, height) = img.dimensions();
-    if width < BOUNDARY || height < BOUNDARY {
+    if width < FEATURE_BOUNDARY || height < FEATURE_BOUNDARY {
         return features;
     }
 
     // Remove boundary features along the left side.
-    for x in 0 .. u32::min(BOUNDARY, width) {
+    for x in 0 .. u32::min(FEATURE_BOUNDARY, width) {
         for y in 0 .. height {
             features.put_pixel(x, y, black);
         }
     }
 
     // Remove boundary features along the right side.
-    for x in (width - BOUNDARY) .. width {
+    for x in (width - FEATURE_BOUNDARY) .. width {
         for y in 0 .. height {
             features.put_pixel(x, y, black);
         }
     }
 
     // Remove boundary features on the top.
-    for y in 0 .. u32::min(BOUNDARY, height) {
+    for y in 0 .. u32::min(FEATURE_BOUNDARY, height) {
         for x in 0 .. width {
             features.put_pixel(x, y, black);
         }
     }
 
     // Remove boundary features on the bottom.
-    for y in (height - BOUNDARY) .. height {
+    for y in (height - FEATURE_BOUNDARY) .. height {
         for x in 0 .. width {
             features.put_pixel(x, y, black);
         }
@@ -179,18 +187,158 @@ fn detect_lines(features: &DynamicImage) -> DynamicImage {
         }
     }
 
+    // For the benefit of the next phase, extend row lines all the way
+    // to the left.
+    // FIXME: This is a bad heuristic and should be more robust.
+    for y in 0 .. height {
+        if tmp.get_pixel(FEATURE_BOUNDARY + 1, y) != black {
+            for x in 0 .. (FEATURE_BOUNDARY + 1) {
+                tmp.put_pixel(x, y, magic);
+            }
+        }
+    }
+
     tmp
+}
+
+#[derive(Debug)]
+struct Cell {
+    /// Row position in the image, with the top row beginning at 0.
+    row: u32,
+    /// Column position in the image, with the left column beginning at 0.
+    /// Column number is for the given row.
+    /// Different rows may have different column counts.
+    col: u32,
+
+    /// Position information for the Cell within the underlying image.
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+}
+
+fn detect_cells_in_row(acc: &mut Vec<Cell>,
+                       lines: &DynamicImage,
+                       cur_row: u32,
+                       y_top: u32,
+                       y_bottom: u32)
+{
+    let (width, _) = lines.dimensions();
+    let black = Rgba([0,0,0,255]);
+
+    // All cells in this row have the same vertical characteristics.
+    let cell_y = y_top;
+    let cell_height = y_bottom - y_top - 1;
+
+    // Y-position at which to test for vertical lines.
+    let cell_y_median = (cell_y) + (cell_height / 2);
+
+    // March to the right. If a line (or boundary) is encountered,
+    // create a new Cell.
+    let mut cur_col: u32 = 0;
+    let mut prev_x = 0;
+    let mut x = CELL_MIN_WIDTH_PX - 1;
+
+    while x < width {
+        // Line encountered! Make a Cell.
+        if lines.get_pixel(x, cell_y_median) != black {
+            // Use current values to produce a Cell.
+            let cell = Cell {
+                row: cur_row,
+                col: cur_col,
+                x: prev_x,
+                y: cell_y,
+                width: (x - prev_x - 1),
+                height: cell_height,
+            };
+
+            acc.push(cell);
+
+            // Update cursor.
+            prev_x = x + 1;
+            cur_col += 1;
+
+            // New column defined: ignore lines within CELL_MIN_WIDTH_PX.
+            x += CELL_MIN_WIDTH_PX;
+        } else {
+            // Check the next pixel for a line.
+            x += 1;
+        }
+    }
+
+    // Make a final cell with the border wall.
+    if prev_x + CELL_MIN_WIDTH_PX < width {
+        let cell = Cell {
+            row: cur_row,
+            col: cur_col,
+            x: prev_x,
+            y: cell_y,
+            width: (width - prev_x - 1),
+            height: cell_height,
+        };
+        acc.push(cell);
+    }
+}
+
+/// Given an image with only lines, get a list of Cells.
+fn detect_cells(lines: &DynamicImage) -> Vec<Cell> {
+    let (_, height) = lines.dimensions();
+    let black = Rgba([0,0,0,255]);
+
+    // The final vector to be returned.
+    let mut acc = Vec::<Cell>::new();
+
+    // Current row and column information.
+    let mut cur_row: u32 = 0;
+
+    // The y-coordinate for the current row.
+    let mut prev_y = 0;
+
+    // The previous phase extended lines all the way to the left, so we
+    // need only consider the leftmost column of pixels.
+    let mut y = CELL_MIN_HEIGHT_PX - 1;
+    while y < height {
+        // If this pixel defines the bottom of a new row,
+        if lines.get_pixel(0, y) != black || y == (height-1) {
+            detect_cells_in_row(&mut acc, &lines, cur_row, prev_y, y);
+
+            // End of row processing: skip by CELL_MIN_HEIGHT_PX.
+            prev_y = y + 1;
+            y += CELL_MIN_HEIGHT_PX;
+            cur_row += 1;
+        } else {
+            // No row found: check the next pixel.
+            y += 1;
+        }
+    }
+
+    // Make a final row with the border wall.
+    if prev_y + CELL_MIN_HEIGHT_PX < height {
+        detect_cells_in_row(&mut acc, &lines, cur_row, prev_y, height - 1);
+    }
+
+    acc
 }
 
 
 pub fn run(config: Config) -> Result<(), Box<Error>> {
-    let img: DynamicImage = image::open(Path::new(&config.filename))?;
+    let mut img: DynamicImage = image::open(Path::new(&config.filename))?;
 
     let features = detect_features(&img);
     let lines = detect_lines(&features);
+    let cells = detect_cells(&lines);
 
     dump(&features, "features.png");
     dump(&lines, "lines.png");
+
+    for cell in cells {
+        let subimg = img.sub_image(cell.x, cell.y, cell.width, cell.height);
+        let subimg2 = subimg.to_image();
+
+        let dynimg = DynamicImage::ImageRgba8(subimg2);
+
+        dump(&dynimg, &format!("{}-{}.png", cell.row, cell.col));
+    }
 
     Ok(())
 }
