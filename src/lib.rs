@@ -202,19 +202,19 @@ fn detect_lines(features: &DynamicImage) -> DynamicImage {
 }
 
 #[derive(Debug)]
-struct Cell {
+pub struct Cell {
     /// Row position in the image, with the top row beginning at 0.
-    row: u32,
+    pub row: u32,
     /// Column position in the image, with the left column beginning at 0.
     /// Column number is for the given row.
     /// Different rows may have different column counts.
-    col: u32,
+    pub col: u32,
 
     /// Position information for the Cell within the underlying image.
-    x: u32,
-    y: u32,
-    width: u32,
-    height: u32,
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
 }
 
 fn detect_cells_in_row(acc: &mut Vec<Cell>,
@@ -321,17 +321,17 @@ fn detect_cells(lines: &DynamicImage) -> Vec<Cell> {
 }
 
 
+pub fn get_cells(img: &DynamicImage) -> Vec<Cell> {
+    let features = detect_features(&img);
+    let lines = detect_lines(&features);
+    detect_cells(&lines)
+}
+
+
 pub fn run(config: Config) -> Result<(), Box<Error>> {
     let mut img: DynamicImage = image::open(Path::new(&config.filename))?;
 
-    let features = detect_features(&img);
-    let lines = detect_lines(&features);
-    let cells = detect_cells(&lines);
-
-    dump(&features, "features.png");
-    dump(&lines, "lines.png");
-
-    for cell in cells {
+    for cell in get_cells(&img) {
         let subimg = img.sub_image(cell.x, cell.y, cell.width, cell.height);
         let subimg2 = subimg.to_image();
 
