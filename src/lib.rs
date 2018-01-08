@@ -335,7 +335,7 @@ pub fn run(config: Config) -> Result<(), Box<Error>> {
         let subimg = img.sub_image(cell.x, cell.y, cell.width, cell.height);
         let subimg2 = subimg.to_image();
 
-        let dynimg = DynamicImage::ImageRgba8(subimg2);
+        let dynimg = DynamicImage::ImageRgba8(subimg2).grayscale();
 
         dump(&dynimg, &format!("{}-{}.png", cell.row, cell.col));
     }
