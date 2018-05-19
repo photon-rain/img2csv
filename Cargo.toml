@@ -1,7 +1,13 @@
 [package]
 name = "img2csv"
-version = "0.1.0"
-authors = ["Sean Stangl <sstangl@mozilla.com>"]
+version = "0.2.0"
+authors = ["Sean Stangl <sstangl@mozilla.com>","Matt Pearce <matthew.pearce@anu.edu.au>"]
+build = "build.rs"
+
 
 [dependencies]
 image = "0.18"
+libc = "0.2.0"
+
+[build-dependencies]
+pkg-config = "0.3"

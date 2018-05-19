@@ -1,11 +1,18 @@
 //! The img2csv implementation.
 
 extern crate image;
+extern crate libc;
 use image::{DynamicImage, GenericImage, Rgba};
+mod ffi;
+mod matrix;
+mod swt;
 
 use std::error::Error;
 use std::path::Path;
 
+
+use matrix::*;
+use swt::*;
 
 /// The minimum length of a stretch of pixels that can make up a line.
 const LINE_MIN_LENGTH_PX: u32 = 50;
@@ -330,6 +337,9 @@ pub fn get_cells(img: &DynamicImage) -> Vec<Cell> {
 
 pub fn run(config: Config) -> Result<(), Box<Error>> {
     let mut img: DynamicImage = image::open(Path::new(&config.filename))?;
+
+    let mut pix = Matrix::read(&config.filename, matrix::OpenAs::ToGray).expect("Could not read image");
+    let words = pix.detect_words(Default::default());
 
     for cell in get_cells(&img) {
         let subimg = img.sub_image(cell.x, cell.y, cell.width, cell.height);
